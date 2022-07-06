@@ -10,7 +10,7 @@ import (
 )
 
 // NewServerConfig provides new server TLS configuration.
-func NewServerConfig(logger log.Logger, certFile, keyFile, minVersion string, cipherSuites []string) (*tls.Config, error) {
+func NewServerConfig(logger log.Logger, certFile, keyFile, minVersion, maxVersion string, cipherSuites []string) (*tls.Config, error) {
 	if certFile == "" && keyFile == "" {
 		level.Info(logger).Log("msg", "TLS disabled; key and cert must be set to enable")
 
@@ -24,9 +24,18 @@ func NewServerConfig(logger log.Logger, certFile, keyFile, minVersion string, ci
 		return nil, fmt.Errorf("server credentials: %w", err)
 	}
 
-	version, err := flag.TLSVersion(minVersion)
+	tlsMinVersion, err := flag.TLSVersion(minVersion)
 	if err != nil {
 		return nil, fmt.Errorf("TLS version invalid: %w", err)
+	}
+
+	tlsMaxVersion, err := flag.TLSVersion(maxVersion)
+	if err != nil {
+		return nil, fmt.Errorf("TLS version invalid: %w", err)
+	}
+
+	if tlsMinVersion > tlsMaxVersion {
+		return nil, fmt.Errorf("TLS minimum version can not be greater than maximum version: %v > %v", tlsMinVersion, tlsMaxVersion)
 	}
 
 	cipherSuiteIDs, err := flag.TLSCipherSuites(cipherSuites)
@@ -41,7 +50,8 @@ func NewServerConfig(logger log.Logger, certFile, keyFile, minVersion string, ci
 		// Note that TLS 1.3 ciphersuites are not configurable.
 		CipherSuites: cipherSuiteIDs,
 		ClientAuth:   tls.RequestClientCert,
-		MinVersion:   version,
+		MinVersion:   tlsMinVersion,
+		MaxVersion:   tlsMaxVersion,
 	}
 
 	return tlsCfg, nil

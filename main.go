@@ -105,6 +105,7 @@ type serverConfig struct {
 
 type tlsConfig struct {
 	minVersion     string
+	maxVersion     string
 	cipherSuites   []string
 	reloadInterval time.Duration
 
@@ -665,6 +666,7 @@ func main() {
 			cfg.tls.serverCertFile,
 			cfg.tls.serverKeyFile,
 			cfg.tls.minVersion,
+			cfg.tls.maxVersion,
 			cfg.tls.cipherSuites,
 		)
 		if err != nil {
@@ -761,6 +763,7 @@ func main() {
 			cfg.tls.internalServerCertFile,
 			cfg.tls.internalServerKeyFile,
 			cfg.tls.minVersion,
+			cfg.tls.maxVersion,
 			cfg.tls.cipherSuites,
 		)
 		if err != nil {
@@ -940,6 +943,8 @@ func parseFlags() (config, error) {
 			" If no server name is specified, the server name will be inferred from the healthcheck URL.")
 	flag.StringVar(&cfg.tls.minVersion, "tls.min-version", "VersionTLS13",
 		"Minimum TLS version supported. Value must match version names from https://golang.org/pkg/crypto/tls/#pkg-constants.")
+	flag.StringVar(&cfg.tls.maxVersion, "tls.max-version", "VersionTLS13",
+		"Maximum TLS version supported. Value must match version names from https://golang.org/pkg/crypto/tls/#pkg-constants.")
 	flag.StringVar(&rawTLSCipherSuites, "tls.cipher-suites", "",
 		"Comma-separated list of cipher suites for the server."+
 			" Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants)."+

@@ -135,6 +135,8 @@ Usage of ./observatorium-api:
     	File containing the default x509 Certificate for internal HTTPS. Leave blank to disable TLS.
   -tls.internal.server.key-file string
     	File containing the default x509 private key matching --tls.internal.server.cert-file. Leave blank to disable TLS.
+  -tls.max-version string
+    	Maximum TLS version supported. Value must match version names from https://golang.org/pkg/crypto/tls/#pkg-constants. (default "VersionTLS13")
   -tls.min-version string
     	Minimum TLS version supported. Value must match version names from https://golang.org/pkg/crypto/tls/#pkg-constants. (default "VersionTLS13")
   -tls.reload-interval duration
