@@ -92,9 +92,9 @@ type LogFilterExpr struct {
 	value            string
 }
 
-func (LogFilterExpr) logQLExpr() {}
+func (*LogFilterExpr) logQLExpr() {}
 
-func (LogFilterExpr) logStageExpr() {}
+func (*LogFilterExpr) logStageExpr() {}
 
 func newLogFilterExpr(filter, filterOp, value string) *LogFilterExpr {
 	return &LogFilterExpr{filter: filter, filterOp: filterOp, value: value}
@@ -141,9 +141,9 @@ func newLogLabelFilter(identifier, comparisonOp, filterOp, value string) *LogLab
 	return &LogLabelFilterExpr{labelName: identifier, comparisonOp: comparisonOp, filterOp: filterOp, labelValue: value}
 }
 
-func (LogLabelFilterExpr) logQLExpr() {}
+func (*LogLabelFilterExpr) logQLExpr() {}
 
-func (LogLabelFilterExpr) logStageExpr() {}
+func (*LogLabelFilterExpr) logStageExpr() {}
 
 func (l *LogLabelFilterExpr) String() string {
 	var sb strings.Builder
@@ -229,9 +229,9 @@ func newLogFormatExpr(sep string, kv LogFormatValues, operation string) *LogForm
 	return &LogFormatExpr{sep: sep, kv: kv, operation: operation}
 }
 
-func (LogFormatExpr) logQLExpr() {}
+func (*LogFormatExpr) logQLExpr() {}
 
-func (LogFormatExpr) logStageExpr() {}
+func (*LogFormatExpr) logStageExpr() {}
 
 func (l *LogFormatExpr) String() string {
 	var (
@@ -303,9 +303,9 @@ func newLogParserExpr(parser, identifier, operation string) *LogParserExpr {
 	return &LogParserExpr{parser: parser, identifier: identifier, operation: operation}
 }
 
-func (LogParserExpr) logQLExpr() {}
+func (*LogParserExpr) logQLExpr() {}
 
-func (LogParserExpr) logStageExpr() {}
+func (*LogParserExpr) logStageExpr() {}
 
 func (l *LogParserExpr) String() string {
 	var sb strings.Builder
@@ -357,11 +357,11 @@ func newLogDecolorizeExpr() *LogDecolorizeExpr {
 	return &LogDecolorizeExpr{}
 }
 
-func (LogDecolorizeExpr) logQLExpr() {}
+func (*LogDecolorizeExpr) logQLExpr() {}
 
-func (LogDecolorizeExpr) logStageExpr() {}
+func (*LogDecolorizeExpr) logStageExpr() {}
 
-func (l LogDecolorizeExpr) String() string {
+func (l *LogDecolorizeExpr) String() string {
 	return "| decolorize"
 }
 
@@ -387,12 +387,12 @@ func (l LogPipelineExpr) String() string {
 	return sb.String()
 }
 
-func (l *LogPipelineExpr) Walk(fn WalkFn) {
+func (l LogPipelineExpr) Walk(fn WalkFn) {
 	if l == nil {
 		return
 	}
 
-	for _, e := range *l {
+	for _, e := range l {
 		fn(e)
 	}
 }
@@ -404,11 +404,11 @@ type LogQueryExpr struct {
 	Expr
 }
 
-func newLogQueryExpr(m *StreamMatcherExpr, filter LogPipelineExpr) LogSelectorExpr {
+func newLogQueryExpr(m *StreamMatcherExpr, filter LogPipelineExpr) *LogQueryExpr {
 	return &LogQueryExpr{left: m, filter: filter}
 }
 
-func (LogQueryExpr) logQLExpr() {}
+func (*LogQueryExpr) logQLExpr() {}
 
 func (l *LogQueryExpr) Matchers() []*labels.Matcher {
 	return l.left.matchers
@@ -441,11 +441,11 @@ type LogRangeQueryExpr struct {
 	Expr
 }
 
-func newLogRangeQueryExpr(m LogSelectorExpr, rng string, grouping *grouping, rngLast bool) LogSelectorExpr {
+func newLogRangeQueryExpr(m LogSelectorExpr, rng string, grouping *grouping, rngLast bool) *LogRangeQueryExpr {
 	return &LogRangeQueryExpr{left: m, rng: rng, grouping: grouping, rngLast: rngLast}
 }
 
-func (LogRangeQueryExpr) logQLExpr() {}
+func (*LogRangeQueryExpr) logQLExpr() {}
 
 func (l *LogRangeQueryExpr) Matchers() []*labels.Matcher {
 	return l.left.Matchers()
@@ -501,7 +501,7 @@ func newLogMetricExpr(
 	groupingAfterOp bool,
 	params []string,
 	o *LogOffsetExpr,
-) LogMetricSampleExpr {
+) *LogMetricExpr {
 	var offset time.Duration
 	if o != nil {
 		offset = o.Offset
@@ -518,7 +518,7 @@ func newLogMetricExpr(
 	}
 }
 
-func (LogMetricExpr) logQLExpr() {}
+func (*LogMetricExpr) logQLExpr() {}
 
 func (l *LogMetricExpr) Selector() LogSelectorExpr {
 	return l.left
