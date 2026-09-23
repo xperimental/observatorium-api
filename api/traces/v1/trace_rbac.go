@@ -12,6 +12,7 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/golang/protobuf/jsonpb" // nolint:staticcheck
+	"github.com/golang/protobuf/proto"  //nolint:staticcheck
 	"github.com/grafana/tempo/pkg/tempopb"
 	commonv1 "github.com/grafana/tempo/pkg/tempopb/common/v1"
 	tracev1 "github.com/grafana/tempo/pkg/tempopb/trace/v1"
@@ -20,14 +21,22 @@ import (
 )
 
 const (
+	HeaderContentType     = "Content-Type"
+	ContentTypeProtobuf   = "application/protobuf"
+	ContentTypeJSON       = "application/json"
 	namespaceAttributeKey = "k8s.namespace.name"
 	serviceAttributeKey   = "service.name"
 )
 
-var allowedTempoAPIs = []*regexp.Regexp{
-	regexp.MustCompile(`^/api/traces/\w+$`),
-	regexp.MustCompile(`^/api/search$`),
-}
+var (
+	routeQueryV1         = regexp.MustCompile(`^/api/traces/\w+$`)
+	routeQueryV2         = regexp.MustCompile(`^/api/v2/traces/\w+$`)
+	routeSearch          = regexp.MustCompile(`^/api/search$`)
+	routeSearchTagValues = regexp.MustCompile(`^/api/v2/search/tag/(resource\.service\.name|resource\.k8s\.namespace\.name)/values$`)
+
+	allowedTempoAPIs = []*regexp.Regexp{routeQueryV1, routeQueryV2, routeSearch, routeSearchTagValues}
+	filteredAPIs     = []*regexp.Regexp{routeQueryV1, routeQueryV2, routeSearch}
+)
 
 func matchesAnyRegex(s string, patterns []*regexp.Regexp) bool {
 	for _, re := range patterns {
@@ -75,11 +84,36 @@ func WithTraceQLNamespaceSelectAndForbidOtherAPIs(enabled bool) func(http.Handle
 	}
 }
 
+func unmarshal(response *http.Response, body []byte, pb proto.Message) error {
+	switch response.Header.Get(HeaderContentType) {
+	case ContentTypeProtobuf:
+		return proto.Unmarshal(body, pb)
+	default:
+		return (&jsonpb.Unmarshaler{}).Unmarshal(bytes.NewReader(body), pb)
+	}
+}
+
+func marshal(response *http.Response, buf *bytes.Buffer, pb proto.Message) error {
+	switch response.Header.Get(HeaderContentType) {
+	case ContentTypeProtobuf:
+		b, err := proto.Marshal(pb)
+		if err != nil {
+			return err
+		}
+		buf.Write(b)
+		return nil
+	default:
+		return (&jsonpb.Marshaler{}).Marshal(buf, pb)
+	}
+}
+
 func responseRBACModifier(log log.Logger) func(response *http.Response) error {
 	return func(response *http.Response) error {
-		if strings.HasPrefix(response.Request.URL.Path, "/api/traces/") || strings.HasPrefix(response.Request.URL.Path, "/api/search") {
+		request := response.Request
+
+		if matchesAnyRegex(request.URL.Path, filteredAPIs) {
 			allowedNamespaces := map[string]bool{}
-			namespaces := apilogsv1.AllowedNamespaces(response.Request.Context())
+			namespaces := apilogsv1.AllowedNamespaces(request.Context())
 			for _, ns := range namespaces {
 				allowedNamespaces[ns] = true
 			}
@@ -92,32 +126,74 @@ func responseRBACModifier(log log.Logger) func(response *http.Response) error {
 				}
 
 				responseBuffer := &bytes.Buffer{}
-				if strings.HasPrefix(response.Request.URL.Path, "/api/traces/") {
+				switch {
+				case routeQueryV1.MatchString(request.URL.Path):
+					// do not use unmarshal here, because we must use
+					// UnmarshalFromJSONV1 instead of (&jsonpb.Unmarshaler{}).Unmarshal
 					trace := &tempopb.Trace{}
-					err = tempopb.UnmarshalFromJSONV1(b, trace)
+					switch response.Header.Get(HeaderContentType) {
+					case ContentTypeProtobuf:
+						err = proto.Unmarshal(b, trace)
+					default:
+						err = tempopb.UnmarshalFromJSONV1(b, trace)
+					}
 					if err != nil {
 						return err
 					}
+
 					trace = traceRBAC(allowedNamespaces, trace)
 
-					traceResponseBody, err := tempopb.MarshalToJSONV1(trace)
+					// do not use marshal here, because we must use
+					// MarshalToJSONV1 instead of (&jsonpb.Marshaler{}).Marshal
+					switch response.Header.Get(HeaderContentType) {
+					case ContentTypeProtobuf:
+						var out []byte
+						out, err = proto.Marshal(trace)
+						if err != nil {
+							return err
+						}
+						responseBuffer = bytes.NewBuffer(out)
+					default:
+						var traceResponseBody []byte
+						traceResponseBody, err = tempopb.MarshalToJSONV1(trace)
+						if err != nil {
+							return err
+						}
+						responseBuffer = bytes.NewBuffer(traceResponseBody)
+					}
+
+				case routeQueryV2.MatchString(request.URL.Path):
+					traceByIDResponse := &tempopb.TraceByIDResponse{}
+					err = unmarshal(response, b, traceByIDResponse)
 					if err != nil {
 						return err
 					}
-					responseBuffer = bytes.NewBuffer(traceResponseBody)
-				} else {
+
+					traceByIDResponse.Trace = traceRBAC(allowedNamespaces, traceByIDResponse.Trace)
+
+					err = marshal(response, responseBuffer, traceByIDResponse)
+					if err != nil {
+						return err
+					}
+
+				case routeSearch.MatchString(request.URL.Path):
 					searchResponse := &tempopb.SearchResponse{}
-					err = jsonpb.UnmarshalString(string(b), searchResponse)
+					err = unmarshal(response, b, searchResponse)
 					if err != nil {
 						return err
 					}
+
 					searchResponse = searchResponseRBAC(allowedNamespaces, searchResponse)
 
-					marshaller := jsonpb.Marshaler{}
-					err = marshaller.Marshal(responseBuffer, searchResponse)
+					err = marshal(response, responseBuffer, searchResponse)
 					if err != nil {
 						return err
 					}
+
+				default:
+					level.Warn(log).Log("msg", "unhandled filtered API path", "path", request.URL.Path)
+					responseBuffer = bytes.NewBufferString("forbidden")
+					response.StatusCode = http.StatusForbidden
 				}
 				response.Body = io.NopCloser(responseBuffer)
 				response.Header["Content-Length"] = []string{fmt.Sprint(responseBuffer.Len())}
